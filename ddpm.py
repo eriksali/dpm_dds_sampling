@@ -4,7 +4,7 @@ import torch.nn as nn
 from matplotlib import pyplot as plt
 from tqdm import tqdm
 from torch import optim
-##from modules import UNet
+
 import logging
 from torch.utils.tensorboard import SummaryWriter
 from core import Smooth
@@ -47,9 +47,7 @@ from sampler import NoiseScheduleVP, model_wrapper, DPM_Solver
 import torchvision.utils as tvu
 from torchvision.utils import save_image
  
- 
-CIFAR10_DATA_DIR = "data/cifar10"
-##IMAGENET_DATA_DIR = "../_data/datasets/tiny-imagenet/val"
+
 IMAGENET_DATA_DIR = "../_data/datasets/imagenet/val"
 
 def parse_args_and_config():
@@ -464,9 +462,7 @@ class Diffusion(object):
                                 dimension equal to the length of timesteps.
         :return: a tensor of shape [batch_size, 1, ...] where the shape has K dims.
         """
-        ##timesteps = torch.tensor(timesteps)
         timesteps = timesteps.clone().detach()
-        ##res = torch.from_numpy(arr).to(device=timesteps.device)[timesteps].float()
         res = arr.to(device=timesteps.device)[timesteps].float()
         while len(res.shape) < len(broadcast_shape):
             res = res[..., None]
@@ -545,7 +541,6 @@ class Diffusion(object):
         elif self.args.sample_type in ["dpmsolver", "dpmsolver++"]:
 
             def model_fn(x, t, **model_kwargs):
-                print("t*********************************************\n", t)
                 out = model(x, t, **model_kwargs)
                 # If the model outputs both 'mean' and 'variance' (such as improved-DDPM and guided-diffusion),
                 # We only use the 'mean' output for DPM-Solver, because DPM-Solver is based on diffusion ODEs.
@@ -555,7 +550,6 @@ class Diffusion(object):
                 return out
 
             def classifier_fn(x, t, y, **classifier_kwargs):
-                print("t=============================================\n", t)
                 logits = classifier(x, t)
                 log_probs = torch.nn.functional.log_softmax(logits, dim=-1)
                 return log_probs[range(len(logits)), y.view(-1)]
@@ -590,7 +584,7 @@ class Diffusion(object):
                 atol=self.args.dpm_solver_atol,
                 rtol=self.args.dpm_solver_rtol,
             )
-            # x = x.cpu()
+
         else:
             raise NotImplementedError
         return x, classes
@@ -632,30 +626,20 @@ class DiffusionModel(nn.Module):
 
         
         diffusion = Diffusion(args, config)
-        
-        ##print("Loading checkpoint {}".format(ckpt))
-        print("Loading checkpoint from pretrained/model-790000.ckpt")
 
-        '''model.load_state_dict(
-            ##torch.load("../_data/pretrained/cifar10/model-790000.ckpt")
-            ##torch.load("../_data/pretrained/imagenet/imagenet64_uncond_100M_1500K.pt") 128x128_classifier.pt
-            torch.load("../_data/pretrained/imagenet/128x128_diffusion.pt")
-        )'''
+        print("Loading checkpoint from pretrained/model-790000.ckpt")
 
         if "ckpt_dir" in self.config.model.__dict__.keys():
             ckpt_dir = os.path.expanduser(self.config.model.ckpt_dir)
             states = torch.load(
                 ckpt_dir,
             )
-            # states = {f"module.{k}":v for k, v in states.items()}
+
             if self.config.model.model_type == 'improved_ddpm' or self.config.model.model_type == 'guided_diffusion':
                 model.load_state_dict(states, strict=True)
                 if self.config.model.use_fp16:
                     model.convert_to_fp16()
             else:
-                # TODO: FIXME
-                # model = torch.nn.DataParallel(model)
-                # model.load_state_dict(states[0], strict=True)
                 model.load_state_dict(states, strict=True)
 
             if self.config.sampling.cond_class and not self.config.model.is_upsampling:
@@ -680,15 +664,11 @@ class DiffusionModel(nn.Module):
                 classifier.load_state_dict(states, strict=True)
                 if self.config.classifier.use_fp16:
                     classifier.convert_to_fp16()
-                    # classifier.module.convert_to_fp16()
             else:
                 classifier = None
 
-        self.classifier_sampling = classifier 
-        
+        self.classifier_sampling = classifier         
         model.eval()
-        ##model.eval()
-
         self.model = model 
         self.diffusion = diffusion 
 
@@ -701,18 +681,10 @@ class DiffusionModel(nn.Module):
         self.model = torch.nn.DataParallel(self.model).cuda()
         self.classifier = torch.nn.DataParallel(self.classifier).cuda()
 
-        '''classifier.load_state_dict(
-            torch.load("pretrained/256x256_classifier.pt")
-            ##torch.load("pretrained/imagenet64_uncond_100M_1500K.pt")
-        )'''
 
-        ##self.classifier.eval()
-    def forward(self, x, t):
-            
+    def forward(self, x, t):            
         x_in = x * 2 -1
         x = self.sampling(x_in, t)
-        ##x = self.diffusion.sample_image(x_in, self.model, t)
-        print("-----------------------tttttttttt")
 
         x = inverse_data_transform(self.config, x)
         x = x.clone().detach()
@@ -726,32 +698,23 @@ class DiffusionModel(nn.Module):
         for i, sample in enumerate(imgs):
             save_image(sample, os.path.join(output_dir, f"sample_{i}.png"))
                
-               
-        ##imgs = torch.tensor(imgs).cuda()
         imgs = imgs.clone().detach().cuda()
-
             
         with torch.no_grad():
             out = self.classifier(imgs)
 
-
-        ##return out.logits
         return out
     
     def sampling(self, x_start, t):
         assert x_start.ndim == 4, x_start.ndim
         t_batch = torch.tensor([t] * len(x_start)).cuda()
-
         noise = torch.randn_like(x_start)
-
         x_t_start = self.diffusion.q_sample(x_start=x_start, t=t_batch, noise=noise)
+        #####################################################################################
         with torch.no_grad():
             out = self.diffusion.sample_image(
                 x_t_start,
                 self.model,
-                ##self.classifier_sampling,#################################################################################################################
-                ##self.classifier,
-                ##clip_denoised=True
             )
 
         return out
@@ -767,16 +730,11 @@ def certify(model, dataloader, args, config):
         b = model.diffusion.sqrt_one_minus_alphas_cumprod[t]
         real_sigma = b / a
 
-    print(t)
-    print("--------------------------------")
-
-    # Define the smoothed classifier 
     smoothed_classifier = Smooth(model, 1000, args.sigma, t)
 
     f = open(args.outfile, 'w')
     print("idx\tlabel\tpredict\tradius\tcorrect\ttime", file=f, flush=True)
 
-    ##total_num = 0
     correct = 0
     index = 0
     # Iterate through the dataset
@@ -784,19 +742,14 @@ def certify(model, dataloader, args, config):
         for i in range(len(inputs)):
             if i % args.skip != 0:
                 continue
-
             (x, label) = inputs[i], labels[i].item()
-            print("label#########################33\n", label)
-
+            
             before_time = time.time()
             prediction, radius = smoothed_classifier.certify(x, args.N0, args.N, args.alpha, args.batch_size)
             after_time = time.time()
-            print("prediction********************\n", prediction)
-
+            
             correct = int(prediction == label)
-
             time_elapsed = str(datetime.timedelta(seconds=(after_time - before_time)))
-            ##total_num += 1
 
             print("{}\t{}\t{}\t{:.3}\t{}\t{}".format(
                 index, label, prediction, radius, correct, time_elapsed), file=f, flush=True)
@@ -812,13 +765,9 @@ def sample(args, config):
     model = model.eval().to(config.device)
 
     # load dataset
-    ##dataset = datasets.CIFAR10(CIFAR10_DATA_DIR, train=False, download=True, transform=transforms.ToTensor())
     transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor()])
     dataset = datasets.ImageFolder(root=IMAGENET_DATA_DIR, transform=transform)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
-
-    print("dataset loaded ===========================================================")
-
 
     certify(model, dataloader, args, config)   
 
