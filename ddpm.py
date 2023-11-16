@@ -58,8 +58,8 @@ def parse_args_and_config():
     parser = argparse.ArgumentParser(description='Predict on many examples')
     parser.add_argument("--sigma", type=float, default=0.50, help="noise hyperparameter")
     parser.add_argument("--skip", type=int, default=1, help="how many examples to skip")
-    parser.add_argument("--N0", type=int, default=10, help="the number of Monte Carlo samples for selection")
-    parser.add_argument("--N", type=int, default=10, help="the number of Monte Carlo samples to use for estimation")
+    parser.add_argument("--N0", type=int, default=2, help="the number of Monte Carlo samples for selection")
+    parser.add_argument("--N", type=int, default=2, help="the number of Monte Carlo samples to use for estimation")
     parser.add_argument("--batch_size", type=int, default=10, help="batch size")
     parser.add_argument("--alpha", type=float, default=0.0001, help="failure probability")
     parser.add_argument("--outfile", type=str, default="results/imagenet/sigma_0.50", help="output file")
@@ -472,7 +472,7 @@ class Diffusion(object):
             res = res[..., None]
         return res.expand(broadcast_shape)
 
-    def sample_image(self, x, model, last=True, classifier=None, base_samples=None):
+    def sample_image(self, x, model, t_start, last=True, classifier=None, base_samples=None):
         assert last
         try:
             skip = self.args.skip
@@ -581,6 +581,7 @@ class Diffusion(object):
             x = dpm_solver.sample(
                 x,
                 steps=(self.args.timesteps - 1 if self.args.denoise else self.args.timesteps),
+                t_start=t_start/1000,
                 order=self.args.dpm_solver_order,
                 skip_type=self.args.skip_type,
                 method=self.args.dpm_solver_method,
@@ -715,6 +716,7 @@ class DiffusionModel(nn.Module):
         print("-----------------------tttttttttt")
 
         x = inverse_data_transform(self.config, x)
+        print("x.shape inverse_data_transform-----------------------tttttttttt", x.shape)
         x = x.clone().detach()
 
         imgs = torch.nn.functional.interpolate(x, (512, 512), mode='bicubic', antialias=True)   
@@ -749,6 +751,7 @@ class DiffusionModel(nn.Module):
             out = self.diffusion.sample_image(
                 x_t_start,
                 self.model,
+                t,
                 ##self.classifier_sampling,#################################################################################################################
                 ##self.classifier,
                 ##clip_denoised=True
@@ -815,7 +818,7 @@ def sample(args, config):
     ##dataset = datasets.CIFAR10(CIFAR10_DATA_DIR, train=False, download=True, transform=transforms.ToTensor())
     transform = transforms.Compose([transforms.Resize(256), transforms.CenterCrop(224), transforms.ToTensor()])
     dataset = datasets.ImageFolder(root=IMAGENET_DATA_DIR, transform=transform)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
 
     print("dataset loaded ===========================================================")
 
